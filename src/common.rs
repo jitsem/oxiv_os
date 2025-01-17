@@ -1,7 +1,7 @@
 use crate::sbi::Sbi;
 use core::fmt::{self, Arguments, Write};
 
-pub fn print_args(args: Arguments) -> () {
+pub fn print_args(args: Arguments) {
     let mut writer = Writer;
     writer.write_fmt(args).unwrap();
 }

@@ -1,15 +1,34 @@
 #![no_std]
 #![no_main]
+
+extern crate alloc;
 use core::arch::asm;
 use core::panic::PanicInfo;
 
+use alloc::vec;
+use allocator::BumpAllocator;
+use spinlock::SpinLock;
+
+pub mod allocator;
 pub mod common;
 pub mod sbi;
+pub mod spinlock;
 
+//These are "filled in" by the linker
 extern "C" {
-    static __stack_top: usize;
+    static __stack_top: *const usize;
+    static __heap_start: *const usize;
+    static __heap_end: *const usize;
 }
 
+/// Boot Entry point of our kernel.
+///
+/// Sets the correct address in the stack pointer and jumps to the main function.
+///
+/// # Safety
+/// - This function must only be called during the kernel initialization phase.
+/// - `__stack_top` must point to a valid stack memory region.
+/// - `main` must be a valid function symbol with a proper ABI.
 #[link_section = ".text.kernel_boot"]
 #[no_mangle]
 pub unsafe extern "C" fn kernel_boot() -> ! {
@@ -24,19 +43,15 @@ pub unsafe extern "C" fn kernel_boot() -> ! {
     }
 }
 
-#[no_mangle]
-unsafe extern "C" fn main() -> () {
-    write_stvec(kernel_entry as *const () as usize, StvecMode::Direct);
-    for c in "Testing SBI...\n".chars() {
-        sbi::Sbi::put_char(c);
-    }
-    println!("{}", "Hello World!");
-    asm!("csrrw x0, cycle, x0");
-}
-
+/// Trap handler entry point of our kernel.
+///
+/// Stores the current program state in registers. Calls the actual trap handler and restores the state
+/// # Safety
+/// - This function must only be called during the kernel trap phase.
+/// - `handle_trap` must be a valid function symbol with a proper ABI.
 #[no_mangle]
 #[link_section = ".text.kernel_entry"]
-pub extern "C" fn kernel_entry() -> () {
+pub extern "C" fn kernel_entry() {
     unsafe {
         asm!(
             "csrw sscratch, sp",
@@ -112,13 +127,45 @@ pub extern "C" fn kernel_entry() -> () {
     }
 }
 
+#[global_allocator]
+static ALLOCATOR: SpinLock<BumpAllocator> = SpinLock::new(BumpAllocator::empty());
+
+/// Main function
+///
+/// This does the actual init of the kernel functions, as opposed to the kernel_boot which does the mandatory asm stuff
+///
+/// # Safety
+/// - This function expects valid adresses for __heap_start and __heap_end
 #[no_mangle]
-pub fn handle_trap(frame: &TrapFrame) {
+unsafe fn main() {
+    write_stvec(kernel_entry as *const () as usize, StvecMode::Direct);
+    println!("{}", "Hello World!");
+    println!(
+        "Initiating Allocator from {} to {}",
+        &__heap_start as *const _ as usize, &__heap_end as *const _ as usize
+    );
+    ALLOCATOR.lock().init(
+        &__heap_start as *const _ as usize,
+        &__heap_end as *const _ as usize,
+    );
+    println!("Doing some self tests....");
+    for i in 0..100 {
+        let x = alloc::boxed::Box::new(i);
+        print!("{}.", x);
+    }
+    println!();
+    let test_vec = vec![1; 200];
+    for i in test_vec {
+        print!("{}.", i);
+    }
+    println!("Done!");
+}
+
+#[no_mangle]
+fn handle_trap(_frame: &TrapFrame) {
     let scause = read_csr("scause");
     let stval = read_csr("stval");
     let spec = read_csr("sepc");
-
-    println!("Trap handled!");
     panic!(
         "unexpected trap scause={:#x}, stval={:#x}, sepc={:#x}\n",
         scause, stval, spec
@@ -178,8 +225,10 @@ pub enum StvecMode {
     Direct = 0,
 }
 
-pub unsafe fn write_stvec(addr: usize, mode: StvecMode) {
-    asm!("csrw stvec, {}", in(reg) (addr | mode as usize));
+pub fn write_stvec(addr: usize, mode: StvecMode) {
+    unsafe {
+        asm!("csrw stvec, {}", in(reg) (addr | mode as usize));
+    }
 }
 
 #[panic_handler]

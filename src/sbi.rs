@@ -12,6 +12,8 @@ struct SbiArgs {
     eid: u32,
 }
 
+/// Not used at the moment
+#[allow(dead_code)]
 struct SbiResult {
     error: u32,
     value: u32,
