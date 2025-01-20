@@ -3,7 +3,9 @@ use core::fmt::{self, Arguments, Write};
 
 pub fn print_args(args: Arguments) {
     let mut writer = Writer;
-    writer.write_fmt(args).unwrap();
+    writer
+        .write_fmt(args)
+        .expect("Something when wrong writing args");
 }
 
 #[macro_export]

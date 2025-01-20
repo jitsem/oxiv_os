@@ -2,15 +2,17 @@
 #![no_main]
 
 extern crate alloc;
-use core::arch::asm;
 use core::panic::PanicInfo;
+use core::arch::asm;
 
 use alloc::vec;
 use allocator::BumpAllocator;
+use process::ProcessCreator;
 use spinlock::SpinLock;
 
 pub mod allocator;
 pub mod common;
+pub mod process;
 pub mod sbi;
 pub mod spinlock;
 
@@ -127,6 +129,14 @@ pub extern "C" fn kernel_entry() {
     }
 }
 
+pub fn delay() {
+    for _ in 0..30000 {
+        unsafe {
+            asm!("nop");
+        }
+    }
+}
+
 #[global_allocator]
 static ALLOCATOR: SpinLock<BumpAllocator> = SpinLock::new(BumpAllocator::empty());
 
@@ -159,16 +169,64 @@ unsafe fn main() {
         print!("{}.", i);
     }
     println!("Done!");
+
+    println!("Starting a process");
+    CREATOR.init();
+    let proc_a_ptr = process_a as *const () as usize;
+    let proc_b_ptr = process_b as *const () as usize;
+    assert!(
+        proc_a_ptr % 2 == 0,
+        "proc_a_ptr is not 4-byte aligned: {:#x}",
+        proc_a_ptr
+    );
+    assert!(
+        proc_b_ptr % 2 == 0,
+        "proc_b_ptr is not 4-byte aligned: {:#x}",
+        proc_b_ptr
+    );
+    println!("proc_a_ptr: {:#X}", proc_a_ptr);
+    println!("proc_b_ptr: {:#X}", proc_b_ptr);
+    let proc_a = CREATOR.create_process(proc_a_ptr);
+    println!("A: {}", proc_a);
+    let proc_b = CREATOR.create_process(proc_b_ptr);
+    println!("B: {}", proc_b);
+    CREATOR.yield_control();
+}
+
+static mut CREATOR: ProcessCreator = ProcessCreator::new();
+
+pub extern "C" fn process_a() {
+    unsafe {
+        println!("Printing a hunderd A's");
+        for i in 0..100 {
+            println!("A{}", i);
+            delay();
+            CREATOR.yield_control();
+        }
+        panic!("A was done!")
+    }
+}
+pub extern "C" fn process_b() {
+    unsafe {
+        println!("Printing a hunderd B's");
+        for i in 0..100 {
+            println!("B{}", i);
+            delay();
+            CREATOR.yield_control();
+        }
+        panic!("B was done!")
+    }
 }
 
 #[no_mangle]
-fn handle_trap(_frame: &TrapFrame) {
+fn handle_trap(frame: &TrapFrame) {
     let scause = read_csr("scause");
     let stval = read_csr("stval");
     let spec = read_csr("sepc");
+    let sp = frame.sp;
     panic!(
-        "unexpected trap scause={:#x}, stval={:#x}, sepc={:#x}\n",
-        scause, stval, spec
+        "unexpected trap scause={:#x}, stval={:#x}, sepc={:#x}, sp={:#x}\n",
+        scause, stval, spec, sp
     );
 }
 
