@@ -59,7 +59,8 @@ enum ProcessState {
     #[default]
     Unused,
     Runnable,
-    Dead,
+    Exited,
+    KernelReserved,
 }
 
 pub struct ProcessCreator<'a> {
@@ -67,14 +68,21 @@ pub struct ProcessCreator<'a> {
     next_proc_id: u32,
     current_running: Option<&'a Process>,
     idle_process: Process,
+    start_process: Process,
 }
 
 impl<'a> ProcessCreator<'a> {
     pub const fn new() -> Self {
         //TODO the entire idle_process thing can be more elegant
         let idle_process = Process {
+            pid: u32::MAX,
+            state: ProcessState::KernelReserved,
+            kernel_stack: [0; 8192],
+            context: CpuContext { registers: [0; 14] },
+        };
+        let start_process = Process {
             pid: 0,
-            state: ProcessState::Dead,
+            state: ProcessState::KernelReserved,
             kernel_stack: [0; 8192],
             context: CpuContext { registers: [0; 14] },
         };
@@ -96,15 +104,40 @@ impl<'a> ProcessCreator<'a> {
             next_proc_id: 1,
             current_running: None,
             idle_process,
+            start_process,
         }
     }
 
     /// TODO: Make this mandatory
     pub fn init(&'a mut self) {
-        Self::init_process(&mut self.idle_process, 0xFFFFFFFF);
-        self.current_running = Some(&self.idle_process);
+        let idle_entry = Self::shedule_idle as *const () as usize;
+        assert!(
+            idle_entry % 2 == 0,
+            "idle_entry is not 4-byte aligned: {:#x}",
+            idle_entry
+        );
+        Self::init_process(&mut self.idle_process, idle_entry);
+        Self::init_process(&mut self.start_process, 0xFFFFFFFFusize);
+        self.current_running = Some(&self.start_process);
     }
 
+    fn shedule_idle() {
+        panic!("Kernel Idle")
+    }
+
+    pub fn exit_process(&'a mut self) {
+        if self.current_running.is_none() {
+            panic!("Exiting a unexisting process")
+        }
+        //TODO this is dirty
+        self.processes
+            .iter_mut()
+            .filter(|p| p.pid == self.current_running.unwrap().pid)
+            .nth(0)
+            .unwrap()
+            .state = ProcessState::Exited;
+        self.yield_control();
+    }
     pub fn create_process(&mut self, entry_point: usize) -> ProcessInfo {
         let mut available_proc: Option<&mut Process> = None;
         for proc in self.processes.iter_mut() {
@@ -138,16 +171,25 @@ impl<'a> ProcessCreator<'a> {
 
     pub extern "C" fn yield_control(&'a mut self) {
         let (prev_pid, prev_context) = match self.current_running {
-            None => (self.idle_process.pid, &self.idle_process.context),
+            None => (self.idle_process.pid, &self.start_process.context),
             Some(proc) => (proc.pid, &proc.context),
         };
 
-        let mut found_processes = self
+        let runnable_processes = self
             .processes
             .iter()
-            .filter(|p| p.pid != prev_pid && p.state == ProcessState::Runnable);
+            .filter(|p| p.state == ProcessState::Runnable);
 
-        if let Some(proc) = found_processes.nth(0) {
+        let proc = match runnable_processes.clone().count() {
+            0 => Some(&self.idle_process),
+            1 if runnable_processes.clone().nth(0).unwrap().pid == prev_pid => None,
+            _ => runnable_processes
+                .clone()
+                .filter(|p| p.pid != prev_pid)
+                .nth(0),
+        };
+
+        if let Some(proc) = proc {
             println!(
                 "Switching from {} to {}",
                 self.current_running.unwrap().pid,

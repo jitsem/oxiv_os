@@ -2,8 +2,8 @@
 #![no_main]
 
 extern crate alloc;
-use core::panic::PanicInfo;
 use core::arch::asm;
+use core::panic::PanicInfo;
 
 use alloc::vec;
 use allocator::BumpAllocator;
@@ -195,7 +195,7 @@ unsafe fn main() {
 
 static mut CREATOR: ProcessCreator = ProcessCreator::new();
 
-pub extern "C" fn process_a() {
+fn process_a() {
     unsafe {
         println!("Printing a hunderd A's");
         for i in 0..100 {
@@ -203,10 +203,11 @@ pub extern "C" fn process_a() {
             delay();
             CREATOR.yield_control();
         }
-        panic!("A was done!")
+        println!("A was done!");
+        CREATOR.exit_process();
     }
 }
-pub extern "C" fn process_b() {
+fn process_b() {
     unsafe {
         println!("Printing a hunderd B's");
         for i in 0..100 {
@@ -214,7 +215,8 @@ pub extern "C" fn process_b() {
             delay();
             CREATOR.yield_control();
         }
-        panic!("B was done!")
+        println!("B was done!");
+        CREATOR.exit_process();
     }
 }
 
@@ -290,7 +292,7 @@ pub fn write_stvec(addr: usize, mode: StvecMode) {
 }
 
 #[panic_handler]
-fn panic(info: &PanicInfo) -> ! {
+fn handle_panic(info: &PanicInfo) -> ! {
     print!("Kernel Panic");
     if let Some(location) = info.location() {
         print!(" ({},{})", location.line(), location.column())
