@@ -7,13 +7,14 @@ use core::panic::PanicInfo;
 
 use alloc::vec;
 use allocator::BumpAllocator;
-use process::ProcessCreator;
+use scheduler::Scheduler;
 use spinlock::SpinLock;
 
 pub mod allocator;
 pub mod common;
 pub mod process;
 pub mod sbi;
+pub mod scheduler;
 pub mod spinlock;
 
 //These are "filled in" by the linker
@@ -147,6 +148,7 @@ static ALLOCATOR: SpinLock<BumpAllocator> = SpinLock::new(BumpAllocator::empty()
 /// # Safety
 /// - This function expects valid adresses for __heap_start and __heap_end
 #[no_mangle]
+#[allow(static_mut_refs)]
 unsafe fn main() {
     write_stvec(kernel_entry as *const () as usize, StvecMode::Direct);
     println!("{}", "Hello World!");
@@ -171,7 +173,8 @@ unsafe fn main() {
     println!("Done!");
 
     println!("Starting a process");
-    CREATOR.init();
+    CREATOR = Some(Scheduler::new());
+    CREATOR.as_mut().unwrap().init();
     let proc_a_ptr = process_a as *const () as usize;
     let proc_b_ptr = process_b as *const () as usize;
     assert!(
@@ -186,38 +189,39 @@ unsafe fn main() {
     );
     println!("proc_a_ptr: {:#X}", proc_a_ptr);
     println!("proc_b_ptr: {:#X}", proc_b_ptr);
-    let proc_a = CREATOR.create_process(proc_a_ptr);
+    let proc_a = CREATOR.as_mut().unwrap().schedule_process(proc_a_ptr);
     println!("A: {}", proc_a);
-    let proc_b = CREATOR.create_process(proc_b_ptr);
+    let proc_b = CREATOR.as_mut().unwrap().schedule_process(proc_b_ptr);
     println!("B: {}", proc_b);
-    CREATOR.yield_control();
+    CREATOR.as_mut().unwrap().yield_control();
 }
 
-static mut CREATOR: ProcessCreator = ProcessCreator::new();
+/// Since yield_control does not return, we cannot just use our spin-lock to get rid of the static.
+/// If we did, we would give control to proc A, yet it would get in the spin when trying to yield itself
+/// This will fix itself after we implement a timer interrupt for sheduling.
+static mut CREATOR: Option<Scheduler> = None;
 
-fn process_a() {
-    unsafe {
-        println!("Printing a hunderd A's");
-        for i in 0..100 {
-            println!("A{}", i);
-            delay();
-            CREATOR.yield_control();
-        }
-        println!("A was done!");
-        CREATOR.exit_process();
+#[allow(static_mut_refs)]
+unsafe fn process_a() {
+    println!("Printing a hunderd A's");
+    for i in 0..100 {
+        println!("A{}", i);
+        delay();
+        CREATOR.as_mut().unwrap().yield_control();
     }
+    println!("A was done!");
+    CREATOR.as_mut().unwrap().exit_process();
 }
-fn process_b() {
-    unsafe {
-        println!("Printing a hunderd B's");
-        for i in 0..100 {
-            println!("B{}", i);
-            delay();
-            CREATOR.yield_control();
-        }
-        println!("B was done!");
-        CREATOR.exit_process();
+#[allow(static_mut_refs)]
+unsafe fn process_b() {
+    println!("Printing a hunderd B's");
+    for i in 0..100 {
+        println!("B{}", i);
+        delay();
+        CREATOR.as_mut().unwrap().yield_control();
     }
+    println!("B was done!");
+    CREATOR.as_mut().unwrap().exit_process();
 }
 
 #[no_mangle]
