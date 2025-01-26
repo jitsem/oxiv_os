@@ -153,10 +153,7 @@ impl Scheduler {
     extern "C" fn switch_context(prev_context: &CpuContext, next_context: &CpuContext) {
         println!(
             "Switching from sp: {:#x} and ra: {:#x} to sp: {:#x} and ra:{:#x}",
-            prev_context.sp,
-            prev_context.ra,
-            next_context.sp,
-            next_context.ra,
+            prev_context.sp, prev_context.ra, next_context.sp, next_context.ra,
         );
 
         unsafe {

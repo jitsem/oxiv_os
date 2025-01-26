@@ -12,6 +12,7 @@ use spinlock::SpinLock;
 
 pub mod allocator;
 pub mod common;
+pub mod page;
 pub mod process;
 pub mod sbi;
 pub mod scheduler;
@@ -152,6 +153,22 @@ static ALLOCATOR: SpinLock<BumpAllocator> = SpinLock::new(BumpAllocator::empty()
 unsafe fn main() {
     write_stvec(kernel_entry as *const () as usize, StvecMode::Direct);
     println!("{}", "Hello World!");
+
+    let mut page_allocator = page::PageAllocator::new(
+        &__heap_start as *const _ as usize,
+        &__heap_end as *const _ as usize,
+    );
+    page_allocator.print_page_allocations();
+    //Do some calls to the allocator and print the results
+    let page1 = page_allocator.alloc(10);
+    println!("Got {:#x}", page1 as usize);
+    page_allocator.print_page_allocations();
+    let page2 = page_allocator.zero_alloc(10);
+    println!("Got {:#x}", page2 as usize);
+    page_allocator.print_page_allocations();
+    page_allocator.dealloc(page1);
+    page_allocator.print_page_allocations();
+    page_allocator.dealloc(page2);
     println!(
         "Initiating Allocator from {} to {}",
         &__heap_start as *const _ as usize, &__heap_end as *const _ as usize
