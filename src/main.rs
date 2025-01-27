@@ -5,8 +5,8 @@ extern crate alloc;
 use core::arch::asm;
 use core::panic::PanicInfo;
 
-use alloc::vec;
-use allocator::BumpAllocator;
+use allocator::KernelAllocator;
+use page::PageAllocator;
 use scheduler::Scheduler;
 use spinlock::SpinLock;
 
@@ -140,7 +140,8 @@ pub fn delay() {
 }
 
 #[global_allocator]
-static ALLOCATOR: SpinLock<BumpAllocator> = SpinLock::new(BumpAllocator::empty());
+static mut ALLOCATOR: KernelAllocator = KernelAllocator::new();
+static mut PAGE_ALLOCATOR: SpinLock<page::PageAllocator> = SpinLock::new(PageAllocator::new());
 
 /// Main function
 ///
@@ -153,41 +154,25 @@ static ALLOCATOR: SpinLock<BumpAllocator> = SpinLock::new(BumpAllocator::empty()
 unsafe fn main() {
     write_stvec(kernel_entry as *const () as usize, StvecMode::Direct);
     println!("{}", "Hello World!");
+    println!("Initiating our page allocator and running some tests");
 
-    let mut page_allocator = page::PageAllocator::new(
+    PAGE_ALLOCATOR.lock().init(
         &__heap_start as *const _ as usize,
         &__heap_end as *const _ as usize,
     );
-    page_allocator.print_page_allocations();
+    PAGE_ALLOCATOR.lock().print_page_allocations();
     //Do some calls to the allocator and print the results
-    let page1 = page_allocator.alloc(10);
+    let page1 = PAGE_ALLOCATOR.lock().alloc(10);
     println!("Got {:#x}", page1 as usize);
-    page_allocator.print_page_allocations();
-    let page2 = page_allocator.zero_alloc(10);
+    PAGE_ALLOCATOR.lock().print_page_allocations();
+    let page2 = PAGE_ALLOCATOR.lock().zero_alloc(10);
     println!("Got {:#x}", page2 as usize);
-    page_allocator.print_page_allocations();
-    page_allocator.dealloc(page1);
-    page_allocator.print_page_allocations();
-    page_allocator.dealloc(page2);
-    println!(
-        "Initiating Allocator from {} to {}",
-        &__heap_start as *const _ as usize, &__heap_end as *const _ as usize
-    );
-    ALLOCATOR.lock().init(
-        &__heap_start as *const _ as usize,
-        &__heap_end as *const _ as usize,
-    );
-    println!("Doing some self tests....");
-    for i in 0..100 {
-        let x = alloc::boxed::Box::new(i);
-        print!("{}.", x);
-    }
-    println!();
-    let test_vec = vec![1; 200];
-    for i in test_vec {
-        print!("{}.", i);
-    }
-    println!("Done!");
+    PAGE_ALLOCATOR.lock().print_page_allocations();
+    PAGE_ALLOCATOR.lock().dealloc(page1);
+    PAGE_ALLOCATOR.lock().print_page_allocations();
+    PAGE_ALLOCATOR.lock().dealloc(page2);
+    println!("Coupling to the rust allocator",);
+    ALLOCATOR.init(&PAGE_ALLOCATOR);
 
     println!("Starting a process");
     CREATOR = Some(Scheduler::new());
@@ -220,8 +205,8 @@ static mut CREATOR: Option<Scheduler> = None;
 
 #[allow(static_mut_refs)]
 unsafe fn process_a() {
-    println!("Printing a hunderd A's");
-    for i in 0..100 {
+    println!("Printing a 3 A's");
+    for i in 0..3 {
         println!("A{}", i);
         delay();
         CREATOR.as_mut().unwrap().yield_control();
@@ -231,8 +216,8 @@ unsafe fn process_a() {
 }
 #[allow(static_mut_refs)]
 unsafe fn process_b() {
-    println!("Printing a hunderd B's");
-    for i in 0..100 {
+    println!("Printing a 3 B's");
+    for i in 0..3 {
         println!("B{}", i);
         delay();
         CREATOR.as_mut().unwrap().yield_control();

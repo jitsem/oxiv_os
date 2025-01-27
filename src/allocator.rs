@@ -1,58 +1,33 @@
-use core::{alloc::GlobalAlloc, cell::UnsafeCell};
+use core::alloc::GlobalAlloc;
 
-use crate::spinlock::SpinLock;
+use crate::{
+    page::{self, PageAllocator, PAGE_SIZE},
+    spinlock::SpinLock,
+};
 
 extern crate alloc;
 
-pub type LockBumpAllocator = SpinLock<BumpAllocator>;
+pub struct KernelAllocator {
+    alloc: Option<&'static SpinLock<PageAllocator>>,
+}
 
-unsafe impl GlobalAlloc for LockBumpAllocator {
+impl KernelAllocator {
+    pub const fn new() -> Self {
+        KernelAllocator { alloc: None }
+    }
+
+    pub fn init(&mut self, alloc: &'static SpinLock<PageAllocator>) {
+        self.alloc = Some(alloc);
+    }
+}
+
+unsafe impl GlobalAlloc for KernelAllocator {
     unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
-        self.lock().alloc(layout)
+        let nr_of_pages = page::align_val(layout.size(), page::PAGE_ORDER) / PAGE_SIZE;
+        self.alloc.unwrap().lock().alloc(nr_of_pages)
     }
 
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: core::alloc::Layout) {
-        self.lock().dealloc(ptr, layout);
-    }
-}
-pub struct BumpAllocator {
-    state: Option<BumpAllocState>,
-}
-
-struct BumpAllocState {
-    heap_end: usize,
-    next: UnsafeCell<usize>,
-}
-
-impl BumpAllocator {
-    pub const fn empty() -> Self {
-        BumpAllocator { state: None }
-    }
-    pub fn init(&mut self, heap_start: usize, heap_end: usize) {
-        self.state = Some(BumpAllocState {
-            heap_end,
-            next: UnsafeCell::new(heap_start),
-        });
-    }
-}
-
-unsafe impl GlobalAlloc for BumpAllocator {
-    unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
-        if let Some(state) = &self.state {
-            let alloc_start = *state.next.get();
-            let alloc_end = *state.next.get() + layout.size();
-            if alloc_end > state.heap_end {
-                panic!("Out of memory. Couldn't alloc for size: {}!", layout.size())
-            } else {
-                *(state.next.get()) = alloc_end;
-                alloc_start as *mut u8
-            }
-        } else {
-            panic!("Allocator was not inited!!!")
-        }
-    }
-
-    unsafe fn dealloc(&self, _ptr: *mut u8, _layout: core::alloc::Layout) {
-        //We do not de-alloc in a bump allocator
+    unsafe fn dealloc(&self, ptr: *mut u8, _layout: core::alloc::Layout) {
+        self.alloc.unwrap().lock().dealloc(ptr);
     }
 }

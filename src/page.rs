@@ -1,11 +1,11 @@
 // Heavily Inspired by Stephen Marz's blog post: https://osblog.stephenmarz.com/ch3.html
 use crate::{print, println};
-const PAGE_ORDER: usize = 12;
+pub const PAGE_ORDER: usize = 12;
 pub const PAGE_SIZE: usize = 1 << PAGE_ORDER;
 
 /// Aligns a value to the next multiple of the order.
 /// So, this is a little trick to make sure any address is aligned to a page boundary.
-const fn align_val(val: usize, order: usize) -> usize {
+pub const fn align_val(val: usize, order: usize) -> usize {
     let order = (1 << order) - 1;
     (val + order) & !order
 }
@@ -63,25 +63,33 @@ impl PageDescriptor {
 }
 
 impl PageAllocator {
-    pub fn new(heap_start: usize, heap_end: usize) -> Self {
+    pub const fn new() -> Self {
+        PageAllocator {
+            heap_start: 0,
+            total_num_pages: 0,
+            alloc_start: 0,
+        }
+    }
+
+    pub fn init(&mut self, heap_start: usize, heap_end: usize) {
         let size = heap_end - heap_start;
         let total_num_pages = size / PAGE_SIZE;
         //Clear all pages
-        for i in 0..total_num_pages {
-            let page = heap_start + i * PAGE_SIZE;
-            let pd = page as *mut PageDescriptor;
-            unsafe {
-                pd.write(PageDescriptor::new());
-            }
-        }
+
         let alloc_start = align_val(
             heap_start + (total_num_pages * size_of::<PageDescriptor>()),
             PAGE_ORDER,
         );
-        PageAllocator {
-            heap_start,
-            alloc_start,
-            total_num_pages,
+        self.heap_start = heap_start;
+        self.total_num_pages = total_num_pages;
+        self.alloc_start = alloc_start;
+
+        for i in 0..self.total_num_pages {
+            let page = self.heap_start + i * PAGE_SIZE;
+            let pd = page as *mut PageDescriptor;
+            unsafe {
+                pd.write(PageDescriptor::new());
+            }
         }
     }
 
