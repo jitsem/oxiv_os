@@ -1,7 +1,9 @@
 // Heavily Inspired by Stephen Marz's blog post: https://osblog.stephenmarz.com/ch3.html
-use crate::{print, println};
+use crate::{print, println, spinlock::SpinLock};
 pub const PAGE_ORDER: usize = 12;
 pub const PAGE_SIZE: usize = 1 << PAGE_ORDER;
+
+pub static mut PAGE_ALLOCATOR: SpinLock<PageAllocator> = SpinLock::new(PageAllocator::new());
 
 /// Aligns a value to the next multiple of the order.
 /// So, this is a little trick to make sure any address is aligned to a page boundary.
@@ -182,6 +184,5 @@ impl PageAllocator {
                 }
             }
         }
-        println!();
     }
 }

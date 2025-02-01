@@ -5,31 +5,39 @@ SECTIONS {
 
     __kernel_start = .;
 
-    .text : ALIGN(16){
+    .text : ALIGN(4096){
+        __text_start = .;
         KEEP(*(.text.kernel_boot));
         . = ALIGN(16);
         KEEP(*(.text.kernel_entry));
         *(.text .text.*);
+        __text_end = .;
     }
 
-    .rodata : ALIGN(4) {
+    .rodata : ALIGN(4096) {
+        __rodata_start = .;
         *(.rodata .rodata.*);
+        __rodata_end = .;
     }
 
-    .data : ALIGN(4) {
+    .data : ALIGN(4096) {
+        __data_start = .;
         *(.data .data.*);
+        __data_end = .;
+
     }
 
-    .bss : ALIGN(4) {
-        __bss = .;
+    .bss : ALIGN(4096) {
+        __bss_start = .;
         *(.bss .bss.* .sbss .sbss.*);
         __bss_end = .;
     }
 
 
-    . = ALIGN(16);
+    . = ALIGN(4096);
+    __stack_start = .;
     . += 128 * 1024; /* 128KB */
-    __stack_top = .;
+    __stack_end = .;
 
     . = ALIGN(4096);
     __heap_start = .;
