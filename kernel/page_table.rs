@@ -201,3 +201,10 @@ impl PageTable {
         }
     }
 }
+
+//To satisfy clippy
+impl Default for PageTable {
+    fn default() -> Self {
+        Self::new()
+    }
+}

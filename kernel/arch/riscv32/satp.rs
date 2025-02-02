@@ -6,7 +6,7 @@ pub struct Satp {
 }
 impl Satp {
     pub const fn new(ppn: usize) -> Self {
-        let value = 1usize << 31 | (ppn as usize >> PAGE_ORDER);
+        let value = 1usize << 31 | (ppn >> PAGE_ORDER);
         Satp { value }
     }
 

@@ -111,7 +111,7 @@ impl PageAllocator {
                 } else {
                     pages_found = 0;
                 }
-                pd = pd.add(size_of::<PageDescriptor>());
+                pd = pd.add(1);
             }
         }
         if !found_index.0 {
@@ -119,9 +119,9 @@ impl PageAllocator {
         }
         unsafe {
             (*pd).add_flag(PageState::Last);
-            pd = pd.sub(nr_of_pages * size_of::<PageDescriptor>());
+            pd = pd.sub(nr_of_pages);
             for i in 0..=nr_of_pages {
-                (*pd.add(i * size_of::<PageDescriptor>())).add_flag(PageState::Taken);
+                (*pd.add(i)).add_flag(PageState::Taken);
             }
         }
 
@@ -142,7 +142,7 @@ impl PageAllocator {
         unsafe {
             while !(*pd).is_last() && (*pd).is_taken() {
                 (*pd).clear();
-                pd = pd.add(size_of::<PageDescriptor>());
+                pd = pd.add(1);
             }
             //Guard against deallocating a page that is not marked as last since that indicates a double frees
             assert!((*pd).is_last(), "Page is not marked as last");
@@ -184,5 +184,12 @@ impl PageAllocator {
                 }
             }
         }
+    }
+}
+
+//To satisfy clippy
+impl Default for PageAllocator {
+    fn default() -> Self {
+        Self::new()
     }
 }

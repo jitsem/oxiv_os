@@ -23,6 +23,13 @@ impl KernelAllocator {
     }
 }
 
+//To satisfy clippy
+impl Default for KernelAllocator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 unsafe impl GlobalAlloc for KernelAllocator {
     unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
         let nr_of_pages = page::align_val(layout.size(), PAGE_ORDER) / PAGE_SIZE;
