@@ -1,4 +1,3 @@
-use crate::sbi::Sbi;
 use core::fmt::{self, Arguments, Write};
 
 pub fn print_args(args: Arguments) {
@@ -23,9 +22,7 @@ struct Writer;
 
 impl fmt::Write for Writer {
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        for c in s.chars() {
-            Sbi::put_char(c);
-        }
+        crate::arch::console_write(s);
         Ok(())
     }
 }

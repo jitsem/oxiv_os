@@ -1,7 +1,7 @@
 // Heavily Inspired by Stephen Marz's blog post: https://osblog.stephenmarz.com/ch3.html
+use crate::arch::PAGE_ORDER;
+use crate::arch::PAGE_SIZE;
 use crate::{print, println, spinlock::SpinLock};
-pub const PAGE_ORDER: usize = 12;
-pub const PAGE_SIZE: usize = 1 << PAGE_ORDER;
 
 pub static mut PAGE_ALLOCATOR: SpinLock<PageAllocator> = SpinLock::new(PageAllocator::new());
 

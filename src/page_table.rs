@@ -1,5 +1,5 @@
+use crate::arch::PAGE_SIZE;
 use crate::page;
-use crate::page::PAGE_SIZE;
 use crate::println;
 
 //See SV32 RISC-V Privileged ISA document
@@ -26,7 +26,7 @@ impl VirtualAddress {
     }
 
     fn is_aligned(&self) -> bool {
-        self.0 % page::PAGE_SIZE == 0
+        self.0 % PAGE_SIZE == 0
     }
 
     pub fn with_offset(&self, offset: usize) -> VirtualAddress {
@@ -45,7 +45,7 @@ impl PhysicalAddress {
     }
 
     fn is_aligned(&self) -> bool {
-        self.0 % page::PAGE_SIZE as u64 == 0
+        self.0 % PAGE_SIZE as u64 == 0
     }
 
     pub fn with_offset(&self, offset: u64) -> PhysicalAddress {
@@ -163,7 +163,7 @@ impl PageTable {
         let start = start.as_usize();
         let aligned_end = page::align_val(end.as_usize(), 12);
 
-        let num_pages = (aligned_end - start) / page::PAGE_SIZE;
+        let num_pages = (aligned_end - start) / PAGE_SIZE;
         for i in 0..num_pages {
             self.map(
                 VirtualAddress(start).with_offset(i * PAGE_SIZE),
