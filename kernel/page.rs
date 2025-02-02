@@ -3,7 +3,7 @@ use crate::arch::PAGE_ORDER;
 use crate::arch::PAGE_SIZE;
 use crate::{print, println, spinlock::SpinLock};
 
-pub static mut PAGE_ALLOCATOR: SpinLock<PageAllocator> = SpinLock::new(PageAllocator::new());
+pub static PAGE_ALLOCATOR: SpinLock<PageAllocator> = SpinLock::new(PageAllocator::new());
 
 /// Aligns a value to the next multiple of the order.
 /// So, this is a little trick to make sure any address is aligned to a page boundary.

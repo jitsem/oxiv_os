@@ -5,6 +5,7 @@ use alloc::vec::Vec;
 use allocator::KernelAllocator;
 use core::panic::PanicInfo;
 use scheduler::Scheduler;
+use spinlock::SpinLock;
 
 pub mod allocator;
 pub mod arch;
@@ -16,8 +17,9 @@ pub mod scheduler;
 pub mod spinlock;
 
 #[global_allocator]
-static mut ALLOCATOR: KernelAllocator = KernelAllocator::new();
-static mut ROOT_PAGE_TABLE: page_table::PageTable = page_table::PageTable::new();
+static ALLOCATOR: KernelAllocator = KernelAllocator;
+static ROOT_PAGE_TABLE: SpinLock<page_table::PageTable> =
+    SpinLock::new(page_table::PageTable::new());
 
 pub struct BootInfo {
     pub text_start: usize,
@@ -51,7 +53,7 @@ pub fn boot(boot_info: &BootInfo) {
         init_memory(boot_info);
     }
     println!();
-    init_stap(unsafe { &ROOT_PAGE_TABLE as *const _ as usize });
+    init_stap(&ROOT_PAGE_TABLE as *const _ as usize);
     println!();
     unsafe {
         do_mem_tests();
@@ -114,7 +116,6 @@ unsafe fn init_memory(boot_info: &BootInfo) {
     page::PAGE_ALLOCATOR
         .lock()
         .init(boot_info.heap_start, boot_info.heap_end);
-    ALLOCATOR.init(&page::PAGE_ALLOCATOR);
     page::PAGE_ALLOCATOR.lock().print_page_allocations();
     println!();
     println!("Mapping kernel space:");
@@ -143,52 +144,53 @@ unsafe fn init_memory(boot_info: &BootInfo) {
         boot_info.heap_start, boot_info.heap_end
     );
 
+    let mut root_page = ROOT_PAGE_TABLE.lock();
     assert!(
-        (&ROOT_PAGE_TABLE as *const _ as usize) & 0xFFF == 0,
+        (&(*root_page) as *const _ as usize) & 0xFFF == 0,
         "ROOT_PAGE_TABLE is not aligned!"
     );
 
-    ROOT_PAGE_TABLE.map_kernel_range(
+    root_page.map_kernel_range(
         page_table::VirtualAddress(boot_info.text_start),
         page_table::VirtualAddress(boot_info.text_end),
         page_table::EntryFlags::Read as usize | page_table::EntryFlags::Execute as usize,
     );
 
-    ROOT_PAGE_TABLE.map_kernel_range(
+    root_page.map_kernel_range(
         page_table::VirtualAddress(boot_info.rodata_start),
         page_table::VirtualAddress(boot_info.rodata_end),
         page_table::EntryFlags::Read as usize | page_table::EntryFlags::Execute as usize,
     );
 
-    ROOT_PAGE_TABLE.map_kernel_range(
+    root_page.map_kernel_range(
         page_table::VirtualAddress(boot_info.data_start),
         page_table::VirtualAddress(boot_info.data_end),
         page_table::EntryFlags::Read as usize | page_table::EntryFlags::Write as usize,
     );
 
-    ROOT_PAGE_TABLE.map_kernel_range(
+    root_page.map_kernel_range(
         page_table::VirtualAddress(boot_info.bss_start),
         page_table::VirtualAddress(boot_info.bss_end),
         page_table::EntryFlags::Read as usize | page_table::EntryFlags::Write as usize,
     );
 
-    ROOT_PAGE_TABLE.map_kernel_range(
+    root_page.map_kernel_range(
         page_table::VirtualAddress(boot_info.stack_start),
         page_table::VirtualAddress(boot_info.stack_end),
         page_table::EntryFlags::Read as usize | page_table::EntryFlags::Write as usize,
     );
     println!();
     println!("Detailed ROOT_PAGE_TABLE view before heap map:");
-    ROOT_PAGE_TABLE.print_entries(false);
+    root_page.print_entries(false);
     println!();
 
-    ROOT_PAGE_TABLE.map_kernel_range(
+    root_page.map_kernel_range(
         page_table::VirtualAddress(boot_info.heap_start),
         page_table::VirtualAddress(boot_info.heap_end),
         page_table::EntryFlags::Read as usize | page_table::EntryFlags::Write as usize,
     );
     println!("First-level ROOT_PAGE_TABLE view after heap map:");
-    ROOT_PAGE_TABLE.print_entries(false);
+    root_page.print_entries(false);
     println!();
     println!("Mapping kernel space done!");
 }

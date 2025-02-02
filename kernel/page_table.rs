@@ -128,7 +128,7 @@ impl PageTable {
         let level1 = &mut self.entries[virt_address.vpn1()];
         let new_table = if !level1.is_valid() {
             // Allocate a new page table
-            let new_table: *mut u8 = unsafe { page::PAGE_ALLOCATOR.lock().zero_alloc(1) };
+            let new_table: *mut u8 = page::PAGE_ALLOCATOR.lock().zero_alloc(1);
             level1.0 = (new_table as usize >> 12) << 10 | EntryFlags::Valid as usize;
             new_table
         } else {
@@ -145,9 +145,7 @@ impl PageTable {
         for entry in self.entries.iter_mut() {
             if entry.is_valid() && entry.is_branch() {
                 let table = entry.get_phys_address().0 as *mut PageTable;
-                unsafe {
-                    page::PAGE_ALLOCATOR.lock().dealloc(table as *mut u8);
-                }
+                page::PAGE_ALLOCATOR.lock().dealloc(table as *mut u8);
             }
             entry.0 = 0;
         }
