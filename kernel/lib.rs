@@ -1,10 +1,8 @@
 #![no_std]
-#![no_main]
 
 extern crate alloc;
 use alloc::vec::Vec;
 use allocator::KernelAllocator;
-use core::arch::asm;
 use core::panic::PanicInfo;
 use scheduler::Scheduler;
 
@@ -17,66 +15,26 @@ pub mod process;
 pub mod scheduler;
 pub mod spinlock;
 
-//These are "filled in" by the linker
-extern "C" {
-    static __text_start: *const usize;
-    static __text_end: *const usize;
-
-    static __rodata_start: *const usize;
-    static __rodata_end: *const usize;
-
-    static __data_start: *const usize;
-    static __data_end: *const usize;
-
-    static __bss_start: *const usize;
-    static __bss_end: *const usize;
-
-    static __stack_start: *const usize;
-    static __stack_end: *const usize;
-
-    static __heap_start: *const usize;
-    static __heap_end: *const usize;
-}
-
-/// Boot Entry point of our kernel.
-///
-/// Sets the correct address in the stack pointer and jumps to the main function.
-///
-/// # Safety
-/// - This function must only be called during the kernel initialization phase.
-/// - `__stack_top` must point to a valid stack memory region.
-/// - `main` must be a valid function symbol with a proper ABI.
-#[link_section = ".text.kernel_boot"]
-#[no_mangle]
-pub unsafe extern "C" fn kernel_boot() -> ! {
-    unsafe {
-        asm!(
-            "la sp, {stack_top}",
-            "j {main}",
-            stack_top = sym __stack_end,
-            main = sym main,
-            options(noreturn),
-        );
-    }
-}
-
 #[global_allocator]
 static mut ALLOCATOR: KernelAllocator = KernelAllocator::new();
 static mut ROOT_PAGE_TABLE: page_table::PageTable = page_table::PageTable::new();
 
-fn convert_ptr_to_usize<T>(ptr: &*const T) -> usize {
-    ptr as *const _ as usize
+pub struct BootInfo {
+    pub text_start: usize,
+    pub text_end: usize,
+    pub rodata_start: usize,
+    pub rodata_end: usize,
+    pub data_start: usize,
+    pub data_end: usize,
+    pub bss_start: usize,
+    pub bss_end: usize,
+    pub stack_start: usize,
+    pub stack_end: usize,
+    pub heap_start: usize,
+    pub heap_end: usize,
 }
 
-/// Main function
-///
-/// This does the actual init of the kernel functions, as opposed to the kernel_boot which does the mandatory asm stuff
-///
-/// # Safety
-/// - This function expects valid adresses for __heap_start and __heap_end
-#[no_mangle]
-#[allow(static_mut_refs)]
-unsafe fn main() {
+pub fn boot(boot_info: &BootInfo) {
     arch::init_handlers();
 
     println!("===============================================");
@@ -89,20 +47,27 @@ unsafe fn main() {
     println!("      OOOOO   X     X   III       V      ");
     println!("===============================================");
     println!("{}", "Hello World!");
-    init_memory();
+    unsafe {
+        init_memory(boot_info);
+    }
     println!();
-    init_stap(&ROOT_PAGE_TABLE as *const _ as usize);
+    init_stap(unsafe { &ROOT_PAGE_TABLE as *const _ as usize });
     println!();
-    do_mem_tests();
+    unsafe {
+        do_mem_tests();
+    }
     println!();
-    init_scheduler();
+    unsafe {
+        init_scheduler();
+    }
     println!();
     println!("Kernel initialization done. Going phase 2! Prepare to enter user mode.");
-    println!("(Actually not yet, since that's not finised yet.");
+    println!("(Actually not yet, since that's not finised yet. For now just test some process scheduling)");
     println!("===============================================");
     println!();
-
-    yield_to_init();
+    unsafe {
+        yield_to_init();
+    }
 }
 
 //TODO: This should also be abstracted away in arch
@@ -144,32 +109,39 @@ unsafe fn init_scheduler() {
     println!("Scheduler inited!");
 }
 
-#[allow(static_mut_refs)]
-unsafe fn init_memory() {
-    let text_start = convert_ptr_to_usize(&__text_start);
-    let text_end = convert_ptr_to_usize(&__text_end);
-    let rodata_start = convert_ptr_to_usize(&__rodata_start);
-    let rodata_end = convert_ptr_to_usize(&__rodata_end);
-    let data_start = convert_ptr_to_usize(&__data_start);
-    let data_end = convert_ptr_to_usize(&__data_end);
-    let bss_start = convert_ptr_to_usize(&__bss_start);
-    let bss_end = convert_ptr_to_usize(&__bss_end);
-    let stack_start = convert_ptr_to_usize(&__stack_start);
-    let stack_end = convert_ptr_to_usize(&__stack_end);
-    let heap_start = convert_ptr_to_usize(&__heap_start);
-    let heap_end = convert_ptr_to_usize(&__heap_end);
+unsafe fn init_memory(boot_info: &BootInfo) {
     println!("Initiating Page Alloctor: ");
-    page::PAGE_ALLOCATOR.lock().init(heap_start, heap_end);
+    page::PAGE_ALLOCATOR
+        .lock()
+        .init(boot_info.heap_start, boot_info.heap_end);
     ALLOCATOR.init(&page::PAGE_ALLOCATOR);
     page::PAGE_ALLOCATOR.lock().print_page_allocations();
     println!();
     println!("Mapping kernel space:");
-    println!("TEXT:   0x{:x} -> 0x{:x}", text_start, text_end);
-    println!("RODATA: 0x{:x} -> 0x{:x}", rodata_start, rodata_end);
-    println!("DATA:   0x{:x} -> 0x{:x}", data_start, data_end);
-    println!("BSS:    0x{:x} -> 0x{:x}", bss_start, bss_end);
-    println!("STACK:  0x{:x} -> 0x{:x}", stack_start, stack_end);
-    println!("HEAP:   0x{:x} -> 0x{:x}", heap_start, heap_end);
+    println!(
+        "TEXT:   0x{:x} -> 0x{:x}",
+        boot_info.text_start, boot_info.text_end
+    );
+    println!(
+        "RODATA: 0x{:x} -> 0x{:x}",
+        boot_info.rodata_start, boot_info.rodata_end
+    );
+    println!(
+        "DATA:   0x{:x} -> 0x{:x}",
+        boot_info.data_start, boot_info.data_end
+    );
+    println!(
+        "BSS:    0x{:x} -> 0x{:x}",
+        boot_info.bss_start, boot_info.bss_end
+    );
+    println!(
+        "STACK:  0x{:x} -> 0x{:x}",
+        boot_info.stack_start, boot_info.stack_end
+    );
+    println!(
+        "HEAP:   0x{:x} -> 0x{:x}",
+        boot_info.heap_start, boot_info.heap_end
+    );
 
     assert!(
         (&ROOT_PAGE_TABLE as *const _ as usize) & 0xFFF == 0,
@@ -177,32 +149,32 @@ unsafe fn init_memory() {
     );
 
     ROOT_PAGE_TABLE.map_kernel_range(
-        page_table::VirtualAddress(text_start),
-        page_table::VirtualAddress(text_end),
+        page_table::VirtualAddress(boot_info.text_start),
+        page_table::VirtualAddress(boot_info.text_end),
         page_table::EntryFlags::Read as usize | page_table::EntryFlags::Execute as usize,
     );
 
     ROOT_PAGE_TABLE.map_kernel_range(
-        page_table::VirtualAddress(rodata_start),
-        page_table::VirtualAddress(rodata_end),
+        page_table::VirtualAddress(boot_info.rodata_start),
+        page_table::VirtualAddress(boot_info.rodata_end),
         page_table::EntryFlags::Read as usize | page_table::EntryFlags::Execute as usize,
     );
 
     ROOT_PAGE_TABLE.map_kernel_range(
-        page_table::VirtualAddress(data_start),
-        page_table::VirtualAddress(data_end),
+        page_table::VirtualAddress(boot_info.data_start),
+        page_table::VirtualAddress(boot_info.data_end),
         page_table::EntryFlags::Read as usize | page_table::EntryFlags::Write as usize,
     );
 
     ROOT_PAGE_TABLE.map_kernel_range(
-        page_table::VirtualAddress(bss_start),
-        page_table::VirtualAddress(bss_end),
+        page_table::VirtualAddress(boot_info.bss_start),
+        page_table::VirtualAddress(boot_info.bss_end),
         page_table::EntryFlags::Read as usize | page_table::EntryFlags::Write as usize,
     );
 
     ROOT_PAGE_TABLE.map_kernel_range(
-        page_table::VirtualAddress(stack_start),
-        page_table::VirtualAddress(stack_end),
+        page_table::VirtualAddress(boot_info.stack_start),
+        page_table::VirtualAddress(boot_info.stack_end),
         page_table::EntryFlags::Read as usize | page_table::EntryFlags::Write as usize,
     );
     println!();
@@ -211,8 +183,8 @@ unsafe fn init_memory() {
     println!();
 
     ROOT_PAGE_TABLE.map_kernel_range(
-        page_table::VirtualAddress(heap_start),
-        page_table::VirtualAddress(heap_end),
+        page_table::VirtualAddress(boot_info.heap_start),
+        page_table::VirtualAddress(boot_info.heap_end),
         page_table::EntryFlags::Read as usize | page_table::EntryFlags::Write as usize,
     );
     println!("First-level ROOT_PAGE_TABLE view after heap map:");

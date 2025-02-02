@@ -1,13 +1,10 @@
-[package]
-name = "oxiv_os"
+[workspace]
+resolver = "2"
+members = ["kernel", "boot/riscv32"]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
 
-[dependencies]
-
-
-[profile.dev]
-panic = "abort"
-
-[profile.release]
-panic = "abort"
+[workspace.dependencies]
+oxiv_kernel = { path = "kernel" }

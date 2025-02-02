@@ -1,0 +1,9 @@
+[package]
+name = "oxiv_kernel"
+version = { workspace = true }
+edition = { workspace = true }
+
+[lib]
+path = "lib.rs"
+
+[dependencies]

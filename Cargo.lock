@@ -3,5 +3,12 @@
 version = 4
 
 [[package]]
-name = "oxiv_os"
+name = "oxiv_kernel"
 version = "0.1.0"
+
+[[package]]
+name = "oxiv_riscv32"
+version = "0.1.0"
+dependencies = [
+ "oxiv_kernel",
+]
