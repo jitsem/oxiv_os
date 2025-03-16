@@ -1,11 +1,11 @@
 #![no_std]
 
 extern crate alloc;
+use crate::page_table::PageTable;
 use alloc::vec::Vec;
 use allocator::KernelAllocator;
 use core::panic::PanicInfo;
 use scheduler::Scheduler;
-use spinlock::SpinLock;
 
 pub mod allocator;
 pub mod arch;
@@ -18,8 +18,6 @@ pub mod spinlock;
 
 #[global_allocator]
 static ALLOCATOR: KernelAllocator = KernelAllocator;
-static ROOT_PAGE_TABLE: SpinLock<page_table::PageTable> =
-    SpinLock::new(page_table::PageTable::new());
 
 pub struct BootInfo {
     pub text_start: usize,
@@ -49,11 +47,9 @@ pub fn boot(boot_info: &BootInfo) {
     println!("      OOOOO   X     X   III       V      ");
     println!("===============================================");
     println!("{}", "Hello World!");
-    unsafe {
-        init_memory(boot_info);
-    }
+    let root_page_table = unsafe { init_memory(boot_info) };
     println!();
-    init_stap(&ROOT_PAGE_TABLE as *const _ as usize);
+    init_stap(&root_page_table as *const _ as usize);
     println!();
     unsafe {
         do_mem_tests();
@@ -85,13 +81,15 @@ unsafe fn yield_to_init() {
     println!("Starting process A and B");
     let proc_a_ptr = process_a as *const () as usize;
     let proc_b_ptr = process_b as *const () as usize;
-    assert!(
-        proc_a_ptr % 2 == 0,
+    assert_eq!(
+        proc_a_ptr % 2,
+        0,
         "proc_a_ptr is not 4-byte aligned: {:#x}",
         proc_a_ptr
     );
-    assert!(
-        proc_b_ptr % 2 == 0,
+    assert_eq!(
+        proc_b_ptr % 2,
+        0,
         "proc_b_ptr is not 4-byte aligned: {:#x}",
         proc_b_ptr
     );
@@ -111,7 +109,7 @@ unsafe fn init_scheduler() {
     println!("Scheduler inited!");
 }
 
-unsafe fn init_memory(boot_info: &BootInfo) {
+unsafe fn init_memory(boot_info: &BootInfo) -> PageTable {
     println!("Initiating Page Alloctor: ");
     page::PAGE_ALLOCATOR
         .lock()
@@ -144,9 +142,10 @@ unsafe fn init_memory(boot_info: &BootInfo) {
         boot_info.heap_start, boot_info.heap_end
     );
 
-    let mut root_page = ROOT_PAGE_TABLE.lock();
-    assert!(
-        (&(*root_page) as *const _ as usize) & 0xFFF == 0,
+    let mut root_page = PageTable::new();
+    assert_eq!(
+        (&(root_page) as *const _ as usize) & 0xFFF,
+        0,
         "ROOT_PAGE_TABLE is not aligned!"
     );
 
@@ -193,6 +192,7 @@ unsafe fn init_memory(boot_info: &BootInfo) {
     root_page.print_entries(false);
     println!();
     println!("Mapping kernel space done!");
+    root_page
 }
 
 #[allow(static_mut_refs)]
