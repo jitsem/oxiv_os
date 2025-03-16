@@ -34,7 +34,7 @@ extern "C" {
 /// - `main` must be a valid function symbol with a proper ABI.
 #[link_section = ".text.kernel_boot"]
 #[no_mangle]
-pub unsafe extern "C" fn kernel_boot() -> ! {
+pub unsafe extern "C" fn kernel_boot() -> () {
     unsafe {
         asm!(
             "la sp, {stack_top}",
