@@ -1,3 +1,4 @@
+use crate::page_table::PageTable;
 use alloc::boxed::Box;
 
 #[repr(C, align(16))]
@@ -26,18 +27,8 @@ pub struct Process {
     pub state: ProcessState,
     pub context: CpuContext,
     pub kernel_stack: Box<[u8; 8192]>, //We allocate, but don't use directly. Used via pointer/assembly magic.
+    pub page_table_addr: usize,
 }
-impl Default for Process {
-    fn default() -> Self {
-        Self {
-            pid: 0,
-            state: ProcessState::Unused,
-            kernel_stack: Box::new([0; 8192]),
-            context: CpuContext::default(),
-        }
-    }
-}
-
 #[derive(PartialEq, Eq, Default, Debug, Clone, Copy)]
 pub enum ProcessState {
     #[default]

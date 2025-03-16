@@ -68,6 +68,7 @@ pub enum EntryFlags {
 
 #[repr(C)]
 #[repr(align(4096))]
+#[derive(Clone)]
 pub struct PageTable {
     entries: [Entry; ENTRIES_PER_TABLE],
 }

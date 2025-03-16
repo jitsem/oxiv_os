@@ -1,6 +1,8 @@
 use super::process::{CpuContext, Process, ProcessState};
-use crate::println;
+use crate::page_table::PageTable;
+use crate::{arch, println};
 use alloc::{boxed::Box, collections::vec_deque::VecDeque};
+use core::ptr::null;
 use core::{arch::global_asm, fmt::Display};
 
 const MAX_PROCESSES: usize = 2;
@@ -10,6 +12,7 @@ pub struct Scheduler {
     next_proc_id: u32,
     current_running: Option<Process>,
     previously_running: Option<Process>,
+    root_page_table: *const PageTable,
 }
 
 impl Default for Scheduler {
@@ -51,13 +54,15 @@ impl Scheduler {
             next_proc_id: 1,
             current_running: None,
             previously_running: None,
+            root_page_table: null(),
         }
     }
 
     /// TODO: Make this mandatory from within the type system
-    pub fn init(&mut self) {
+    pub fn init(&mut self, page_table_addr: *const PageTable) {
+        self.root_page_table = page_table_addr;
         self.processes.reserve(MAX_PROCESSES);
-        self.current_running = Some(Self::create_idle_process());
+        self.current_running = Some(self.create_idle_process());
     }
 
     pub fn exit_process(&mut self) {
@@ -68,10 +73,17 @@ impl Scheduler {
         self.yield_control();
     }
     pub fn schedule_process(&mut self, entry_point: usize) -> ProcessInfo {
+        let page_table_addr = if let Some(proc) = &self.current_running {
+            proc.page_table_addr
+        } else {
+            0
+        };
         let new_proc = Process {
             pid: self.next_proc_id,
             state: ProcessState::Runnable,
-            ..Default::default()
+            page_table_addr,
+            kernel_stack: Box::new([0; 8192]),
+            context: CpuContext::default(),
         };
         println!(
             "Process {}: kernel_stack at {:p}",
@@ -89,10 +101,12 @@ impl Scheduler {
         panic!("Kernel Idle")
     }
 
-    fn create_idle_process() -> Process {
+    fn create_idle_process(&self) -> Process {
+        let page_table_addr = self.root_page_table as usize;
         let mut idle_process = Process {
             pid: 0,
             state: ProcessState::KernelReserved,
+            page_table_addr,
             kernel_stack: Box::new([0; 8192]),
             context: CpuContext::default(),
         };
@@ -134,7 +148,7 @@ impl Scheduler {
             }
             None => {
                 println!("Nothing in the process-queue to yield to, going idle!");
-                Some(Self::create_idle_process())
+                Some(self.create_idle_process())
             }
             Some(p) => Some(p),
         };
@@ -143,10 +157,19 @@ impl Scheduler {
             self.previously_running.as_ref().unwrap().pid,
             self.current_running.as_ref().unwrap().pid
         );
+        Self::switch_satp(self.current_running.as_ref().unwrap().page_table_addr);
         Self::switch_context(
             &self.previously_running.as_mut().unwrap().context,
             &self.current_running.as_mut().unwrap().context,
         );
+    }
+
+    #[no_mangle]
+    extern "C" fn switch_satp(addr: usize) {
+        let stap = arch::Satp::new(addr);
+        println!("Stap: {:x}", stap.get());
+        stap.switch();
+        println!("Stap register written")
     }
 
     #[no_mangle]

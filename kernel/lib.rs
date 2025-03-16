@@ -56,7 +56,7 @@ pub fn boot(boot_info: &BootInfo) {
     }
     println!();
     unsafe {
-        init_scheduler();
+        init_scheduler(&root_page_table as *const _);
     }
     println!();
     println!("Kernel initialization done. Going phase 2! Prepare to enter user mode.");
@@ -102,10 +102,10 @@ unsafe fn yield_to_init() {
     CREATOR.as_mut().unwrap().yield_control();
 }
 
-unsafe fn init_scheduler() {
+unsafe fn init_scheduler(page_table_addr: *const PageTable) {
     println!("Initing Scheduler...");
     CREATOR = Some(Scheduler::new());
-    CREATOR.as_mut().unwrap().init();
+    CREATOR.as_mut().unwrap().init(page_table_addr);
     println!("Scheduler inited!");
 }
 
