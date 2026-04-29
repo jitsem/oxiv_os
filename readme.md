@@ -4,7 +4,8 @@ An OS for RISCV written in rust.
 
 ## Disclaimer
 
-WIP. Do not actually use this.
+- WIP. Do not actually use this.
+- I'm not smart enough to do this on my own. I used AI assistance
 
 ## References
 
@@ -15,8 +16,3 @@ WIP. Do not actually use this.
 - https://osblog.stephenmarz.com/index.html
 
 ## TODO/TOADD
-- Mutable static thing
-- Debug logging system
-- Improve trap handler
-- Better memory system
-- Test system

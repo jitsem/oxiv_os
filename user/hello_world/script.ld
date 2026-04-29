@@ -1,7 +1,7 @@
 ENTRY(app_boot)
 
 SECTIONS {
-    . = 0x1000000;
+    . = 0x01000000;
 
     __app_start = .;
 
@@ -33,15 +33,6 @@ SECTIONS {
         __bss_end = .;
     }
 
-
-    . = ALIGN(4096);
-    __stack_start = .;
-    . += 128 * 1024; /* 128KB */
-    __stack_end = .;
-
-    . = ALIGN(4096);
-    __heap_start = .;
-    . += 64 * 1024 * 1024; /* 64MB */
-    __heap_end = .;
-
+    /* Fixed virtual address for the kernel exit trampoline mapped into user page tables */
+    PROVIDE(__user_exit_fn = 0x00003000);
 }

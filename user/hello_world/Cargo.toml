@@ -7,4 +7,10 @@ edition.workspace = true
 name = "hello_world"
 path = "main.rs"
 
+[profile.release]
+panic = "abort"
+lto = true
+strip = "symbols"
+codegen-units = 1
+
 [dependencies]

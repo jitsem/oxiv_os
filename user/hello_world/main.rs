@@ -4,47 +4,44 @@
 use core::arch::asm;
 use core::panic::PanicInfo;
 
-extern "C" {
-    static __text_start: *const usize;
-    static __text_end: *const usize;
-
-    static __rodata_start: *const usize;
-    static __rodata_end: *const usize;
-
-    static __data_start: *const usize;
-    static __data_end: *const usize;
-
-    static __bss_start: *const usize;
-    static __bss_end: *const usize;
-
-    static __stack_start: *const usize;
-    static __stack_end: *const usize;
-
-    static __heap_start: *const usize;
-    static __heap_end: *const usize;
-}
-
+/// The entry point our app
+/// # Safety
+/// - This function must only be called during the app initialization phase.
+/// - `main` must be a valid function symbol with a proper ABI.
+/// - `exit` must be a valid function symbol with a proper ABI.
 #[link_section = ".text.app_boot"]
 #[no_mangle]
-pub unsafe extern "C" fn app_boot() -> () {
+pub unsafe extern "C" fn app_boot() {
     unsafe {
         asm!(
-        "la sp, {stack_top}",
-        "j {main}",
-        stack_top = sym __stack_end,
-        main = sym main,
-        options(noreturn),
+            "call {main}",
+            "call {exit}",
+            main = sym main,
+            exit = sym exit,
+            options(noreturn),
         );
     }
 }
+
 fn main() {
-    let mut i = 0;
-    loop {
-        i += 1
+    for _ in 0..100 {
+        yield_cpu();
+    }
+}
+
+fn exit() -> ! {
+    unsafe {
+        asm!("li a7, 1", "ecall", options(noreturn));
+    }
+}
+
+fn yield_cpu() {
+    unsafe {
+        asm!("li a7, 0", "ecall", options(nostack));
     }
 }
 
 #[panic_handler]
-fn handle_panic(info: &PanicInfo) -> ! {
+fn handle_panic(_info: &PanicInfo) -> ! {
     loop {}
 }

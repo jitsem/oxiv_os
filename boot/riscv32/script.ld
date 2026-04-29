@@ -1,9 +1,10 @@
 ENTRY(kernel_boot)
 
 SECTIONS {
+
     . = 0x80200000;
 
-    __kernel_start = .;
+    __kernel_start = 0x80200000;
 
     .text : ALIGN(4096){
         __text_start = .;
@@ -43,5 +44,12 @@ SECTIONS {
     __heap_start = .;
     . += 64 * 1024 * 1024; /* 64MB */
     __heap_end = .;
+
+
+    __userprog_start = .;
+    .userprog : ALIGN(4096){
+        KEEP(*(.userprog));
+    }
+    __userprog_end = .;
 
 }

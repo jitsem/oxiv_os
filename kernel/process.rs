@@ -1,11 +1,10 @@
-use crate::page_table::PageTable;
 use alloc::boxed::Box;
 
 #[repr(C, align(16))]
 #[derive(Clone, Default)]
 pub struct CpuContext {
     pub ra: usize,
-    pub sp: usize,
+    pub sp: usize, // kernel stack pointer; points to saved TrapFrame for U-mode processes
     pub s0: usize,
     pub s1: usize,
     pub s2: usize,
@@ -26,9 +25,11 @@ pub struct Process {
     pub pid: u32,
     pub state: ProcessState,
     pub context: CpuContext,
-    pub kernel_stack: Box<[u8; 8192]>, //We allocate, but don't use directly. Used via pointer/assembly magic.
+    pub kernel_stack: Box<[u8; 8192]>,
+    pub kernel_sp_top: usize, // top of kernel_stack; constant, used to set sscratch before sret
     pub page_table_addr: usize,
 }
+
 #[derive(PartialEq, Eq, Default, Debug, Clone, Copy)]
 pub enum ProcessState {
     #[default]

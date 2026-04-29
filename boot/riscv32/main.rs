@@ -22,6 +22,9 @@ extern "C" {
 
     static __heap_start: *const usize;
     static __heap_end: *const usize;
+
+    static __userprog_start: *const usize;
+    static __userprog_end: *const usize;
 }
 
 /// Boot Entry point of our kernel.
@@ -34,7 +37,7 @@ extern "C" {
 /// - `main` must be a valid function symbol with a proper ABI.
 #[link_section = ".text.kernel_boot"]
 #[no_mangle]
-pub unsafe extern "C" fn kernel_boot() -> () {
+pub unsafe extern "C" fn kernel_boot() {
     unsafe {
         asm!(
             "la sp, {stack_top}",
@@ -45,6 +48,11 @@ pub unsafe extern "C" fn kernel_boot() -> () {
         );
     }
 }
+
+#[link_section = ".userprog"]
+#[used] // ensure linker keeps it
+static USER_BIN: [u8; include_bytes!(concat!(env!("OUT_DIR"), "/hello_world.bin")).len()] =
+    *include_bytes!(concat!(env!("OUT_DIR"), "/hello_world.bin"));
 
 #[no_mangle]
 fn main() {
@@ -61,6 +69,8 @@ fn main() {
         let stack_end = convert_ptr_to_usize(&__stack_end);
         let heap_start = convert_ptr_to_usize(&__heap_start);
         let heap_end = convert_ptr_to_usize(&__heap_end);
+        let userprog_start = convert_ptr_to_usize(&__userprog_start);
+        let userprog_end = convert_ptr_to_usize(&__userprog_end);
         BootInfo {
             text_start,
             text_end,
@@ -74,6 +84,8 @@ fn main() {
             stack_end,
             heap_start,
             heap_end,
+            userprog_start,
+            userprog_end,
         }
     };
     boot(&boot_info);

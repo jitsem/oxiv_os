@@ -31,7 +31,7 @@ struct PageDescriptor {
 }
 
 impl PageState {
-    fn to_u8(self) -> u8 {
+    fn into_u8(self) -> u8 {
         self as u8
     }
 }
@@ -39,16 +39,16 @@ impl PageState {
 impl PageDescriptor {
     fn new() -> Self {
         PageDescriptor {
-            flags: PageState::Free.to_u8(),
+            flags: PageState::Free.into_u8(),
         }
     }
 
     fn clear(&mut self) {
-        self.flags = PageState::Free.to_u8();
+        self.flags = PageState::Free.into_u8();
     }
 
     fn add_flag(&mut self, flag: PageState) {
-        self.flags |= flag.to_u8();
+        self.flags |= flag.into_u8();
     }
 
     fn is_free(&self) -> bool {
@@ -56,11 +56,11 @@ impl PageDescriptor {
     }
 
     fn is_taken(&self) -> bool {
-        self.flags & PageState::Taken.to_u8() != 0
+        self.flags & PageState::Taken.into_u8() != 0
     }
 
     fn is_last(&self) -> bool {
-        self.flags & PageState::Last.to_u8() != 0
+        self.flags & PageState::Last.into_u8() != 0
     }
 }
 

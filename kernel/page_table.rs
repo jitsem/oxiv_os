@@ -26,7 +26,7 @@ impl VirtualAddress {
     }
 
     fn is_aligned(&self) -> bool {
-        self.0 % PAGE_SIZE == 0
+        self.0.is_multiple_of(PAGE_SIZE)
     }
 
     pub fn with_offset(&self, offset: usize) -> VirtualAddress {
@@ -45,7 +45,7 @@ impl PhysicalAddress {
     }
 
     fn is_aligned(&self) -> bool {
-        self.0 % PAGE_SIZE as u64 == 0
+        self.0.is_multiple_of(PAGE_SIZE as u64)
     }
 
     pub fn with_offset(&self, offset: u64) -> PhysicalAddress {
@@ -152,7 +152,24 @@ impl PageTable {
         }
     }
 
-    //Todo: Should this be here? Or in kernel start? If here, whe should make it kernel specific
+    pub fn map_range(
+        &mut self,
+        virt_start: usize,
+        virt_end: usize,
+        phys_start: usize,
+        flags: usize,
+    ) {
+        let aligned_end = page::align_val(virt_end, 12);
+        let num_pages = (aligned_end - virt_start) / PAGE_SIZE;
+        for i in 0..num_pages {
+            self.map(
+                VirtualAddress(virt_start + i * PAGE_SIZE),
+                PhysicalAddress(phys_start as u64 + (i * PAGE_SIZE) as u64),
+                flags,
+            );
+        }
+    }
+
     pub fn map_kernel_range(&mut self, start: VirtualAddress, end: VirtualAddress, flags: usize) {
         if !start.is_aligned() {
             println!("Start address is not aligned");

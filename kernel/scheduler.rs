@@ -2,16 +2,17 @@ use super::process::{CpuContext, Process, ProcessState};
 use crate::page_table::PageTable;
 use crate::{arch, println};
 use alloc::{boxed::Box, collections::vec_deque::VecDeque};
+use core::arch::asm;
+use core::fmt::Display;
 use core::ptr::null;
-use core::{arch::global_asm, fmt::Display};
 
 const MAX_PROCESSES: usize = 2;
 
 pub struct Scheduler {
-    processes: VecDeque<Process>,
+    pub processes: VecDeque<Process>,
     next_proc_id: u32,
-    current_running: Option<Process>,
-    previously_running: Option<Process>,
+    pub current_running: Option<Process>,
+    pub previously_running: Option<Process>,
     root_page_table: *const PageTable,
 }
 
@@ -40,7 +41,7 @@ impl Display for ProcessInfo {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
-            "proc with id {}({:?}): {:#x} ",
+            "proc with id {}({:?}): sp={:#x}",
             self.pid, self.state, self.stack_pointer
         )
     }
@@ -48,9 +49,8 @@ impl Display for ProcessInfo {
 
 impl Scheduler {
     pub fn new() -> Self {
-        let processes: VecDeque<Process> = VecDeque::new();
         Scheduler {
-            processes,
+            processes: VecDeque::new(),
             next_proc_id: 1,
             current_running: None,
             previously_running: None,
@@ -58,31 +58,25 @@ impl Scheduler {
         }
     }
 
-    /// TODO: Make this mandatory from within the type system
     pub fn init(&mut self, page_table_addr: *const PageTable) {
         self.root_page_table = page_table_addr;
         self.processes.reserve(MAX_PROCESSES);
         self.current_running = Some(self.create_idle_process());
     }
 
-    pub fn exit_process(&mut self) {
-        if self.current_running.is_none() {
-            panic!("Exiting a unexisting process")
-        }
-        self.current_running.as_mut().unwrap().state = ProcessState::Exited;
-        self.yield_control();
-    }
-    pub fn schedule_process(&mut self, entry_point: usize) -> ProcessInfo {
-        let page_table_addr = if let Some(proc) = &self.current_running {
-            proc.page_table_addr
-        } else {
-            0
-        };
-        let new_proc = Process {
+    /// Schedule a U-mode process with its own page table and user stack.
+    pub fn schedule_user_process(
+        &mut self,
+        entry_point: usize,
+        page_table_addr: usize,
+        user_stack_top: usize,
+    ) -> ProcessInfo {
+        let mut new_proc = Process {
             pid: self.next_proc_id,
             state: ProcessState::Runnable,
             page_table_addr,
             kernel_stack: Box::new([0; 8192]),
+            kernel_sp_top: 0,
             context: CpuContext::default(),
         };
         println!(
@@ -91,131 +85,97 @@ impl Scheduler {
             new_proc.kernel_stack.as_ptr()
         );
         self.next_proc_id += 1;
+        Self::init_user_process(&mut new_proc, entry_point, user_stack_top);
+        let info = ProcessInfo::from(&new_proc);
         self.processes.push_back(new_proc);
-        let new_proc = self.processes.back_mut().unwrap();
-        Self::init_process(new_proc, entry_point);
-        ProcessInfo::from(new_proc)
+        info
     }
 
-    fn shedule_idle() {
-        panic!("Kernel Idle")
-    }
-
-    fn create_idle_process(&self) -> Process {
-        let page_table_addr = self.root_page_table as usize;
-        let mut idle_process = Process {
-            pid: 0,
-            state: ProcessState::KernelReserved,
-            page_table_addr,
-            kernel_stack: Box::new([0; 8192]),
-            context: CpuContext::default(),
-        };
-        let idle_entry = Self::shedule_idle as *const () as usize;
-        Self::init_process(&mut idle_process, idle_entry);
-        idle_process
-    }
-    fn init_process(proc: &mut Process, entry_point: usize) {
+    /// Set up a fake TrapFrame on the kernel stack so the first sret starts the process
+    /// at entry_point in U-mode with user_stack_top as the stack pointer.
+    fn init_user_process(proc: &mut Process, entry_point: usize, user_stack_top: usize) {
         unsafe {
-            let sp = proc.kernel_stack.as_mut_ptr().add(proc.kernel_stack.len());
-            assert!(
-                sp as usize % 16 == 0,
-                "stack_pointer is not 16-byte aligned"
-            );
-            proc.context.sp = sp as usize;
-            proc.context.ra = entry_point;
+            let kernel_top = proc.kernel_stack.as_mut_ptr().add(proc.kernel_stack.len()) as usize;
+            proc.kernel_sp_top = kernel_top;
+
+            // Place a zeroed 132-byte TrapFrame (33 words) just below the kernel stack top.
+            let frame_base = (kernel_top - 132) as *mut u32;
+            for i in 0..33usize {
+                frame_base.add(i).write(0);
+            }
+            // word 30 (offset 120) = sp: user stack top
+            frame_base.add(30).write(user_stack_top as u32);
+            // word 31 (offset 124) = sepc: entry point
+            frame_base.add(31).write(entry_point as u32);
+            // word 32 (offset 128) = sstatus: SPIE=1 (bit 5), SPP=0 → sret enters U-mode
+            frame_base.add(32).write(1u32 << 5);
+
+            proc.context.sp = kernel_top - 132;
         }
     }
 
-    pub extern "C" fn yield_control(&mut self) {
-        if self.current_running.is_none() {
-            panic!("Cannot yield without having inited the sheduler")
+    /// Called from handle_trap to perform a context switch.
+    /// Saves current_frame_ptr, picks the next runnable process, switches the page table,
+    /// updates sscratch, and returns the next TrapFrame pointer.
+    pub fn prepare_next_process(&mut self, current_frame_ptr: usize) -> usize {
+        // Save the current kernel-stack position into the current process
+        if let Some(current) = self.current_running.as_mut() {
+            current.context.sp = current_frame_ptr;
         }
 
-        //TODO: This previously_running thing is a hack to account for a fact
-        //we don't yet have an ARC type that can allow use to still use the previous when doing context switch
+        // Re-queue previously_running if still runnable
         if let Some(prev) = self.previously_running.take() {
             if prev.state == ProcessState::Runnable {
                 self.processes.push_back(prev);
             }
         }
 
+        // Current becomes previously_running
         self.previously_running = self.current_running.take();
-        let proc = self.processes.pop_front();
-        self.current_running = match proc {
-            None if self.previously_running.as_ref().unwrap().state == ProcessState::Runnable => {
-                println!("Nothing in the process-queue to yield to, but previous still runnable");
+
+        // Pick next
+        let next = self.processes.pop_front();
+        self.current_running = match next {
+            None if self
+                .previously_running
+                .as_ref()
+                .is_some_and(|p| p.state == ProcessState::Runnable) =>
+            {
                 self.previously_running.take()
             }
             None => {
-                println!("Nothing in the process-queue to yield to, going idle!");
-                Some(self.create_idle_process())
+                panic!("No runnable processes (kernel idle)");
             }
             Some(p) => Some(p),
         };
+
+        let next_proc = self.current_running.as_ref().unwrap();
         println!(
-            "Switching from {} to {}",
-            self.previously_running.as_ref().unwrap().pid,
-            self.current_running.as_ref().unwrap().pid
-        );
-        Self::switch_satp(self.current_running.as_ref().unwrap().page_table_addr);
-        Self::switch_context(
-            &self.previously_running.as_mut().unwrap().context,
-            &self.current_running.as_mut().unwrap().context,
-        );
-    }
-
-    #[no_mangle]
-    extern "C" fn switch_satp(addr: usize) {
-        let stap = arch::Satp::new(addr);
-        println!("Stap: {:x}", stap.get());
-        stap.switch();
-        println!("Stap register written")
-    }
-
-    #[no_mangle]
-    extern "C" fn switch_context(prev_context: &CpuContext, next_context: &CpuContext) {
-        println!(
-            "Switching from sp: {:#x} and ra: {:#x} to sp: {:#x} and ra:{:#x}",
-            prev_context.sp, prev_context.ra, next_context.sp, next_context.ra,
+            "Switching to process {} (frame={:#x})",
+            next_proc.pid, next_proc.context.sp
         );
 
+        // Install next process's page table
+        arch::Satp::new(next_proc.page_table_addr).switch();
+
+        // Set sscratch so the next trap from U-mode gets the right kernel stack
         unsafe {
-            __switch_context(prev_context, next_context);
+            asm!("csrw sscratch, {}", in(reg) next_proc.kernel_sp_top);
+        }
+
+        next_proc.context.sp
+    }
+
+    fn create_idle_process(&self) -> Process {
+        let kernel_stack = Box::new([0u8; 8192]);
+        let kernel_top = unsafe { kernel_stack.as_ptr().add(kernel_stack.len()) as usize };
+        Process {
+            pid: 0,
+            state: ProcessState::KernelReserved,
+            page_table_addr: self.root_page_table as usize,
+            kernel_sp_top: kernel_top,
+            kernel_stack,
+            context: CpuContext::default(),
         }
     }
 }
-extern "C" {
-    fn __switch_context(current: &CpuContext, to: &CpuContext);
-}
-global_asm!(
-    "__switch_context:",
-    "sw ra, 0(a0)",
-    "sw sp, 4(a0)",
-    "sw s0, 8(a0)",
-    "sw s1, 12(a0)",
-    "sw s2, 16(a0)",
-    "sw s3, 20(a0)",
-    "sw s4, 24(a0)",
-    "sw s5, 28(a0)",
-    "sw s6, 32(a0)",
-    "sw s7, 36(a0)",
-    "sw s8, 40(a0)",
-    "sw s9, 44(a0)",
-    "sw s10, 48(a0)",
-    "sw s11, 52(a0)",
-    "lw ra, 0(a1)",
-    "lw sp, 4(a1)",
-    "lw s0, 8(a1)",
-    "lw s1, 12(a1)",
-    "lw s2, 16(a1)",
-    "lw s3, 20(a1)",
-    "lw s4, 24(a1)",
-    "lw s5, 28(a1)",
-    "lw s6, 32(a1)",
-    "lw s7, 36(a1)",
-    "lw s8, 40(a1)",
-    "lw s9, 44(a1)",
-    "lw s10, 48(a1)",
-    "lw s11, 52(a1)",
-    "ret",
-);
